@@ -1,0 +1,96 @@
+package GID.Other;
+/*
+ * 优化部分
+ * 	没有Reduce，在map完成之后直接将数据写入HDFS
+ * 	map中没有导出数据，通过cleanUp最后导出数据
+ * 	在map开始之前先读取其中一个文件
+ * 	减少变量的声明，避免每次运行时声明变量占用内存
+ */
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.HashSet;
+import java.util.Scanner;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+
+public class countSameIP {
+	public static class Map extends Mapper<LongWritable, Text, Text, Text> {
+		Text theKey = new Text();
+		Text theValue = new Text();
+		HashSet<String> ipSet = new HashSet<String>();
+		long count=0;
+		@Override
+		protected void setup(Mapper<LongWritable, Text, Text, Text>.Context context)
+				throws IOException, InterruptedException {
+			// TODO Auto-generated method stub
+			super.setup(context);
+			Configuration conf = context.getConfiguration();
+			FileSystem fs = FileSystem.get(conf);
+			Path ip_time_2_path = new Path(conf.get("ip_time_2"));
+			InputStream ins = fs.open(ip_time_2_path);
+			@SuppressWarnings("resource")
+			Scanner sc = new Scanner(ins);
+			while(sc.hasNext()){
+				String data = sc.nextLine();
+				String[] str = data.split("\\t");
+				if(str.length < 2)
+					return;
+				ipSet.add(str[0]);
+			}
+		}
+		public void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+			String line = String.valueOf(value);
+			String[] str = line.split("\\t");
+			if(str.length < 2){
+				return;
+			}
+			String ip = str[0];
+			if(ipSet.contains(ip)){
+				count++;
+			}
+		}
+
+		protected void cleanup(Context context) throws IOException, InterruptedException {
+			String cou = String.valueOf(count);
+			theKey.set(cou);
+			context.write(theKey, theValue);
+		}
+	}
+	
+	public static class Reduce extends Reducer<Text, Text, Text, Text> {
+		public void reduce(Text key, Iterable<Text> values, Context context) throws IOException, InterruptedException {
+			
+		}
+
+		public void cleanup(Context context) throws IOException, InterruptedException {
+		}
+	}
+
+	public static void main(String[] args) throws Exception {
+		Configuration conf = new Configuration();
+		conf.set("ip_time_2",args[2]);
+		Job job = Job.getInstance(conf, "Ray" + countSameIP.class);
+		job.setJobName("countIp");
+		job.setJarByClass(countSameIP.class);
+
+		job.setNumReduceTasks(0);
+		job.setMapOutputKeyClass(Text.class);
+		job.setMapOutputValueClass(Text.class);
+
+		job.setMapperClass(Map.class);
+		job.setReducerClass(Reduce.class);
+
+		FileInputFormat.setInputPaths(job, new Path(args[0]));
+		FileOutputFormat.setOutputPath(job, new Path(args[1]));
+		boolean status = job.waitForCompletion(true);
+		return;
+	}
+}
