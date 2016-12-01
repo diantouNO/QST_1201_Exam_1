@@ -1,0 +1,101 @@
+package GID.Other;
+
+/*
+ * 暂未优化,同次日留存
+ */
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Iterator;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapred.FileInputFormat;
+import org.apache.hadoop.mapred.FileOutputFormat;
+import org.apache.hadoop.mapred.FileSplit;
+import org.apache.hadoop.mapred.JobClient;
+import org.apache.hadoop.mapred.JobConf;
+import org.apache.hadoop.mapred.MapReduceBase;
+import org.apache.hadoop.mapred.Mapper;
+import org.apache.hadoop.mapred.OutputCollector;
+import org.apache.hadoop.mapred.Reducer;
+import org.apache.hadoop.mapred.Reporter;
+import org.apache.hadoop.mapred.TextInputFormat;
+import org.apache.hadoop.mapred.TextOutputFormat;
+
+public class newSameIP {
+	public static class Map extends MapReduceBase implements Mapper<LongWritable, Text, Text, Text> {
+		Text theKey = new Text();
+		Text theValue = new Text();
+
+		public void map(LongWritable key, Text value, OutputCollector<Text, Text> output, Reporter reporter)
+				throws IOException {
+			String filePath = ((FileSplit) reporter.getInputSplit()).getPath().toString();
+			String[] line = value.toString().split("\\t");
+			if (line == null || line.equals(""))
+				return;
+			if (line.length < 1)
+				return;
+			
+			if (filePath.contains("ip_time_2")) {
+				String data = line[0];
+				theKey.set("01");
+				theValue.set("A" + data);
+				output.collect(theKey, theValue);
+			}
+			if (filePath.contains("ip_time")) {
+				String data = line[0];
+				theKey.set("01");
+				theValue.set("B" + data);
+				output.collect(theKey, theValue);
+			}
+		}
+	}
+
+	public static class Reduce extends MapReduceBase implements Reducer<Text, Text, Text, Text> {
+		Text theValue = new Text();
+		Text theKey = new Text();
+		public void reduce(Text key, Iterator<Text> values, OutputCollector<Text, Text> output, Reporter reporter)
+				throws IOException {
+			HashMap One = new HashMap();
+			HashMap Two = new HashMap();
+			while (values.hasNext()) {
+				String value = values.next().toString();
+				if (value.startsWith("A")) {
+					String IP = value.substring(1);
+					One.put(IP,"");
+				}
+				if (value.startsWith("B")) {
+					String IP = value.substring(1);
+					Two.put(IP,"");
+				}
+			}
+			int sizeone = One.size();
+			int sizetwo = Two.size();
+
+			for (int j = 0; j < sizetwo; j++) {
+				if(!One.containsKey(Two.get(j))){
+					One.put(Two.get(j), "");
+				}
+			}
+			int size = One.size();
+			theKey.set(String.valueOf(size));
+			output.collect(theKey, theValue);
+		}
+	}
+
+	public static void main(String[] args) throws Exception {
+		JobConf conf = new JobConf(newSameIP.class);
+		conf.setJobName("Remain");
+		conf.setOutputKeyClass(Text.class);
+		conf.setOutputValueClass(Text.class);
+
+		conf.setMapperClass(Map.class);
+		conf.setReducerClass(Reduce.class);
+		conf.setInputFormat(TextInputFormat.class);
+		conf.setOutputFormat(TextOutputFormat.class);
+		
+		FileInputFormat.setInputPaths(conf, new Path(args[0]));
+		FileOutputFormat.setOutputPath(conf, new Path(args[1]));
+		JobClient.runJob(conf);
+	}
+}
